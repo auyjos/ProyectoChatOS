@@ -2,6 +2,24 @@
 
 Este proyecto es una implementación de un sistema de chat en C/C++ basado en el trabajo propuesto por Bob Dugan y Erik Véliz en 2006. Su objetivo es reforzar los conocimientos sobre procesos, threads, concurrencia y comunicación entre procesos.
 
+## Como correr
+1. Clonar this repository
+2. Correr los siguientes comandos en la terminal :
+```
+g++ server.cpp -lpthread -o server
+g++ client.cpp -lpthread -o client
+```
+3. Para correr el servidor:
+```
+./server
+```
+
+4. Para correr el cliente :
+```
+./client
+```
+
+5. Para abrir múltiples clientes, repetir paso 4.
 ## Descripción
 
 El proyecto consiste en dos partes principales:
