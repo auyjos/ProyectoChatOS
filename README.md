@@ -16,10 +16,16 @@ g++ client.cpp -lpthread -o client
 
 4. Para correr el cliente :
 ```
-./client
+$ ./client client2
+$ ./client client3
 ```
 
 5. Para abrir múltiples clientes, repetir paso 4.
+
+**Chat privado**
+
+Mencionar al cliente con el que se quiere conversar antes de  enviar un mensaje para habilitar el chat privado, tiene que haber un espacion entre el nombre del cliente y el mensaje, por ejemplo,`@client2 Hola!`. Solo tú y el cliente mencionado podrán ver el mensaje.
+
 ## Descripción
 
 El proyecto consiste en dos partes principales:

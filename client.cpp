@@ -1,141 +1,129 @@
-#include <bits/stdc++.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <errno.h>
-#include <string.h>
-#include <arpa/inet.h>
-#include <unistd.h>
+#include <iostream>
+#include <string>
 #include <thread>
-#include <signal.h>
 #include <mutex>
-#define MAX_LEN 200
-#define NUM_COLORS 6
+#include <cstdlib>
+#include <cstring>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <stdarg.h>
 
-using namespace std;
+#define BUF_SIZE 1024
+#define SERVER_PORT 5208 // 侦听端口
+#define IP "127.0.0.1"
 
-bool exit_flag = false;
-thread t_send, t_recv;
-int client_socket;
-string def_col = "\033[0m";
-string colors[] = {"\033[31m", "\033[32m", "\033[33m", "\033[34m", "\033[35m", "\033[36m"};
+void send_msg(int sock);
+void recv_msg(int sock);
+int output(const char *arg, ...);
+int error_output(const char *arg, ...);
+void error_handling(const std::string &message);
 
-void catch_ctrl_c(int signal);
-string color(int code);
-int eraseText(int cnt);
-void send_message(int client_socket);
-void recv_message(int client_socket);
+std::string name = "DEFAULT";
+std::string msg;
 
-int main()
+int main(int argc, const char **argv, const char **envp)
 {
-    if ((client_socket = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+    int sock;
+    // sockaddr_in serv_addr{};
+    struct sockaddr_in serv_addr;
+
+    if (argc != 2)
     {
-        perror("socket: ");
-        exit(-1);
+        error_output("Usage : %s <Name> \n", argv[0]);
+        exit(1);
     }
 
-    struct sockaddr_in client;
-    client.sin_family = AF_INET;
-    client.sin_port = htons(10000); // Port no. of server
-    client.sin_addr.s_addr = INADDR_ANY;
-    // client.sin_addr.s_addr=inet_addr("127.0.0.1"); // Provide IP address of server
-    bzero(&client.sin_zero, 0);
+    // 客户端名称
+    name = "[" + std::string(argv[1]) + "]";
 
-    if ((connect(client_socket, (struct sockaddr *)&client, sizeof(struct sockaddr_in))) == -1)
+    // sock=socket(PF_INET, SOCK_STREAM, 0);
+    // 创建Socket,使用TCP协议
+    sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (sock == -1)
     {
-        perror("connect: ");
-        exit(-1);
+        error_handling("socket() failed!");
     }
-    signal(SIGINT, catch_ctrl_c);
-    char name[MAX_LEN];
-    cout << "Enter your name : ";
-    cin.getline(name, MAX_LEN);
-    send(client_socket, name, sizeof(name), 0);
 
-    cout << colors[NUM_COLORS - 1] << "\n\t  ====== Welcome to the chat-room ======   " << endl
-         << def_col;
+    // 将套接字和指定的 IP、端口绑定
+    memset(&serv_addr, 0, sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_addr.s_addr = inet_addr(IP);
+    serv_addr.sin_port = htons(SERVER_PORT);
 
-    thread t1(send_message, client_socket);
-    thread t2(recv_message, client_socket);
+    // 连接服务器
+    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) == -1)
+    {
+        error_handling("connect() failed!");
+    }
+    // 向服务器发送自己的名字
+    std::string my_name = "#new client:" + std::string(argv[1]);
+    send(sock, my_name.c_str(), my_name.length() + 1, 0);
 
-    t_send = move(t1);
-    t_recv = move(t2);
+    // 生成发送、接受消息的线程
+    std::thread snd(send_msg, sock);
+    std::thread rcv(recv_msg, sock);
 
-    if (t_send.joinable())
-        t_send.join();
-    if (t_recv.joinable())
-        t_recv.join();
+    snd.join();
+    rcv.join();
+
+    close(sock);
 
     return 0;
 }
 
-// Handler for "Ctrl + C"
-void catch_ctrl_c(int signal)
-{
-    char str[MAX_LEN] = "#exit";
-    send(client_socket, str, sizeof(str), 0);
-    exit_flag = true;
-    t_send.detach();
-    t_recv.detach();
-    close(client_socket);
-    exit(signal);
-}
-
-string color(int code)
-{
-    return colors[code % NUM_COLORS];
-}
-
-// Erase text from terminal
-int eraseText(int cnt)
-{
-    char back_space = 8;
-    for (int i = 0; i < cnt; i++)
-    {
-        cout << back_space;
-    }
-    return 0; // Agregar esta línea
-}
-
-// Send message to everyone
-void send_message(int client_socket)
+void send_msg(int sock)
 {
     while (1)
     {
-        cout << colors[1] << "You : " << def_col;
-        char str[MAX_LEN];
-        cin.getline(str, MAX_LEN);
-        send(client_socket, str, sizeof(str), 0);
-        if (strcmp(str, "#exit") == 0)
+        getline(std::cin, msg);
+        if (msg == "Quit" || msg == "quit")
         {
-            exit_flag = true;
-            t_recv.detach();
-            close(client_socket);
-            return;
+            close(sock);
+            exit(0);
         }
+        // 生成消息格式（[name] massage）
+        std::string name_msg = name + " " + msg;
+        send(sock, name_msg.c_str(), name_msg.length() + 1, 0);
     }
 }
 
-// Receive message
-void recv_message(int client_socket)
+void recv_msg(int sock)
 {
+    char name_msg[BUF_SIZE + name.length() + 1];
     while (1)
     {
-        if (exit_flag)
-            return;
-        char name[MAX_LEN], str[MAX_LEN];
-        int color_code;
-        int bytes_received = recv(client_socket, name, sizeof(name), 0);
-        if (bytes_received <= 0)
-            continue;
-        recv(client_socket, &color_code, sizeof(color_code), 0);
-        recv(client_socket, str, sizeof(str), 0);
-        eraseText(6);
-        if (strcmp(name, "#NULL") != 0)
-            cout << color(color_code) << name << " : " << def_col << str << endl;
-        else
-            cout << color(color_code) << str << endl;
-        cout << colors[1] << "You : " << def_col;
-        fflush(stdout);
+        int str_len = recv(sock, name_msg, BUF_SIZE + name.length() + 1, 0);
+        if (str_len == -1)
+        {
+            exit(-1);
+        }
+        std::cout << std::string(name_msg) << std::endl;
     }
+}
+
+int output(const char *arg, ...)
+{
+    int res;
+    va_list ap;
+    va_start(ap, arg);
+    res = vfprintf(stdout, arg, ap);
+    va_end(ap);
+    return res;
+}
+
+int error_output(const char *arg, ...)
+{
+    int res;
+    va_list ap;
+    va_start(ap, arg);
+    res = vfprintf(stderr, arg, ap);
+    va_end(ap);
+    return res;
+}
+
+void error_handling(const std::string &message)
+{
+    std::cerr << message << std::endl;
+    exit(1);
 }

@@ -1,197 +1,220 @@
-#include <bits/stdc++.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <errno.h>
-#include <string.h>
-#include <arpa/inet.h>
-#include <unistd.h>
+#include <iostream>
+#include <cstring>
 #include <thread>
 #include <mutex>
-#define MAX_LEN 200
-#define NUM_COLORS 6
+#include <cstdlib>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <unordered_map>
+#include <stdarg.h>
 
-using namespace std;
+#define SERVER_PORT 5208 // 侦听端口
+#define BUF_SIZE 1024
+#define MAX_CLNT 256 // 最大连接数
 
-struct terminal
+void handle_clnt(int clnt_sock);
+void send_msg(const std::string &msg);
+int output(const char *arg, ...);
+int error_output(const char *arg, ...);
+void error_handling(const std::string &message);
+
+int clnt_cnt = 0;
+std::mutex mtx;
+// 用unordered_map存储每个client的名字和socket
+std::unordered_map<std::string, int> clnt_socks;
+
+int main(int argc, const char **argv, const char **envp)
 {
-    int id;
-    string name;
-    int socket;
-    thread th;
-};
+    int serv_sock, clnt_sock;
+    struct sockaddr_in serv_addr, clnt_addr;
+    socklen_t clnt_addr_size;
 
-vector<terminal> clients;
-string def_col = "\033[0m";
-string colors[] = {"\033[31m", "\033[32m", "\033[33m", "\033[34m", "\033[35m", "\033[36m"};
-int seed = 0;
-mutex cout_mtx, clients_mtx;
-
-string color(int code);
-void set_name(int id, char name[]);
-void shared_print(string str, bool endLine);
-int broadcast_message(string message, int sender_id);
-int broadcast_message(int num, int sender_id);
-void end_connection(int id);
-void handle_client(int client_socket, int id);
-
-int main()
-{
-    int server_socket;
-    if ((server_socket = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+    // 创建套接字，参数说明：
+    //   AF_INET: 使用 IPv4
+    //   SOCK_STREAM: 面向连接的数据传输方式
+    //   IPPROTO_TCP: 使用 TCP 协议
+    serv_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (serv_sock == -1)
     {
-        perror("socket: ");
-        exit(-1);
+        error_handling("socket() failed!");
     }
+    // 将套接字和指定的 IP、端口绑定
+    //   用 0 填充 serv_addr （它是一个 sockaddr_in 结构体）
+    memset(&serv_addr, 0, sizeof(serv_addr));
+    //   设置 IPv4
+    //   设置 IP 地址
+    //   设置端口
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    // serv_addr.sin_port=htons(atoi(argv[1]));
+    serv_addr.sin_port = htons(SERVER_PORT);
 
-    struct sockaddr_in server;
-    server.sin_family = AF_INET;
-    server.sin_port = htons(10000);
-    server.sin_addr.s_addr = INADDR_ANY;
-    bzero(&server.sin_zero, 0);
-
-    if ((bind(server_socket, (struct sockaddr *)&server, sizeof(struct sockaddr_in))) == -1)
+    //   绑定
+    if (bind(serv_sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) == -1)
     {
-        perror("bind error: ");
-        exit(-1);
+        error_handling("bind() failed!");
     }
-
-    if ((listen(server_socket, 8)) == -1)
+    printf("the server is running on port %d\n", SERVER_PORT);
+    // 使得 serv_sock 套接字进入监听状态，开始等待客户端发起请求
+    if (listen(serv_sock, MAX_CLNT) == -1)
     {
-        perror("listen error: ");
-        exit(-1);
+        error_handling("listen() error!");
     }
-
-    struct sockaddr_in client;
-    int client_socket;
-    unsigned int len = sizeof(sockaddr_in);
-
-    cout << colors[NUM_COLORS - 1] << "\n\t  ====== Welcome to the chat-room ======   " << endl
-         << def_col;
 
     while (1)
-    {
-        if ((client_socket = accept(server_socket, (struct sockaddr *)&client, &len)) == -1)
+    { // 循环监听客户端，永远不停止
+        clnt_addr_size = sizeof(clnt_addr);
+        // 当没有客户端连接时， accept() 会阻塞程序执行，直到有客户端连接进来
+        clnt_sock = accept(serv_sock, (struct sockaddr *)&clnt_addr, &clnt_addr_size);
+        if (clnt_sock == -1)
         {
-            perror("accept error: ");
-            exit(-1);
+            error_handling("accept() failed!");
         }
-        seed++;
-        thread t(handle_client, client_socket, seed);
-        lock_guard<mutex> guard(clients_mtx);
-        clients.push_back({seed, string("Anonymous"), client_socket, (move(t))});
-    }
 
-    for (int i = 0; i < clients.size(); i++)
-    {
-        if (clients[i].th.joinable())
-            clients[i].th.join();
-    }
+        // 增加客户端数量
+        mtx.lock();
+        clnt_cnt++;
+        mtx.unlock();
 
-    close(server_socket);
+        // 生成线程
+        std::thread th(handle_clnt, clnt_sock);
+        th.detach();
+
+        output("Connected client IP: %s \n", inet_ntoa(clnt_addr.sin_addr));
+    }
+    close(serv_sock);
     return 0;
 }
 
-string color(int code)
+void handle_clnt(int clnt_sock)
 {
-    return colors[code % NUM_COLORS];
-}
+    char msg[BUF_SIZE];
+    int flag = 0;
 
-// Set name of client
-void set_name(int id, char name[])
-{
-    for (int i = 0; i < clients.size(); i++)
+    // 第一次广播自己的名字时的前缀
+    char tell_name[13] = "#new client:";
+    while (recv(clnt_sock, msg, sizeof(msg), 0) != 0)
     {
-        if (clients[i].id == id)
+        // 检查是否为第一次进入聊天室时的广播
+        if (std::strlen(msg) > std::strlen(tell_name))
         {
-            clients[i].name = string(name);
+            // 判断msg最前面是否为 #new client:
+            char pre_name[13];
+            std::strncpy(pre_name, msg, 12);
+            pre_name[12] = '\0';
+            if (std::strcmp(pre_name, tell_name) == 0)
+            {
+                // 此消息声明client名字
+                char name[20];
+                std::strcpy(name, msg + 12);
+                if (clnt_socks.find(name) == clnt_socks.end())
+                {
+                    output("the name of socket %d: %s\n", clnt_sock, name);
+                    clnt_socks[name] = clnt_sock;
+                }
+                else
+                {
+                    // 客户端名字重复
+                    std::string error_msg = std::string(name) + " exists already. Please quit and enter with another name!";
+                    send(clnt_sock, error_msg.c_str(), error_msg.length() + 1, 0);
+                    mtx.lock();
+                    clnt_cnt--;
+                    mtx.unlock();
+                    flag = 1;
+                }
+            }
         }
+
+        if (flag == 0)
+            send_msg(std::string(msg));
+    }
+    if (flag == 0)
+    {
+        // 客户端关闭连接，从clnt_socks中删除此客户端
+        std::string leave_msg;
+        std::string name;
+        mtx.lock();
+        for (auto it = clnt_socks.begin(); it != clnt_socks.end(); ++it)
+        {
+            if (it->second == clnt_sock)
+            {
+                name = it->first;
+                clnt_socks.erase(it->first);
+            }
+        }
+        clnt_cnt--;
+        mtx.unlock();
+        leave_msg = "client " + name + " leaves the chat room";
+        send_msg(leave_msg);
+        output("client %s leaves the chat room\n", name.c_str());
+        close(clnt_sock);
+    }
+    else
+    {
+        close(clnt_sock);
     }
 }
 
-// For synchronisation of cout statements
-void shared_print(string str, bool endLine = true)
+void send_msg(const std::string &msg)
 {
-    lock_guard<mutex> guard(cout_mtx);
-    cout << str;
-    if (endLine)
-        cout << endl;
-}
-
-// Broadcast message to all clients except the sender
-int broadcast_message(string message, int sender_id)
-{
-    char temp[MAX_LEN];
-    strcpy(temp, message.c_str());
-    for (int i = 0; i < clients.size(); i++)
+    mtx.lock();
+    // 私聊msg格式: [send_clnt] @recv_clnt message
+    // 判断[send_clnt] 后是否为@ 若是则是私聊
+    std::string pre = "@";
+    int first_space = msg.find_first_of(" ");
+    if (msg.compare(first_space + 1, 1, pre) == 0)
     {
-        if (clients[i].id != sender_id)
+        // 单播
+        // space为recv_clnt和消息间的空格
+        int space = msg.find_first_of(" ", first_space + 1);
+        std::string receive_name = msg.substr(first_space + 2, space - first_space - 2);
+        std::string send_name = msg.substr(1, first_space - 2);
+        if (clnt_socks.find(receive_name) == clnt_socks.end())
         {
-            send(clients[i].socket, temp, sizeof(temp), 0);
+            // 如果私聊的用户不存在
+            std::string error_msg = "[error] there is no client named " + receive_name;
+            send(clnt_socks[send_name], error_msg.c_str(), error_msg.length() + 1, 0);
+        }
+        else
+        {
+            send(clnt_socks[receive_name], msg.c_str(), msg.length() + 1, 0);
+            send(clnt_socks[send_name], msg.c_str(), msg.length() + 1, 0);
         }
     }
-    return 0; // Agregar esta línea
-}
-
-int broadcast_message(int num, int sender_id)
-{
-    for (int i = 0; i < clients.size(); i++)
+    else
     {
-        if (clients[i].id != sender_id)
+        // 广播
+        for (auto it = clnt_socks.begin(); it != clnt_socks.end(); it++)
         {
-            send(clients[i].socket, &num, sizeof(num), 0);
+            send(it->second, msg.c_str(), msg.length() + 1, 0);
         }
     }
-    return 0; // Agregar esta línea
+    mtx.unlock();
 }
 
-void end_connection(int id)
+int output(const char *arg, ...)
 {
-    for (int i = 0; i < clients.size(); i++)
-    {
-        if (clients[i].id == id)
-        {
-            lock_guard<mutex> guard(clients_mtx);
-            clients[i].th.detach();
-            clients.erase(clients.begin() + i);
-            close(clients[i].socket);
-            break;
-        }
-    }
+    int res;
+    va_list ap;
+    va_start(ap, arg);
+    res = vfprintf(stdout, arg, ap);
+    va_end(ap);
+    return res;
 }
 
-void handle_client(int client_socket, int id)
+int error_output(const char *arg, ...)
 {
-    char name[MAX_LEN], str[MAX_LEN];
-    recv(client_socket, name, sizeof(name), 0);
-    set_name(id, name);
+    int res;
+    va_list ap;
+    va_start(ap, arg);
+    res = vfprintf(stderr, arg, ap);
+    va_end(ap);
+    return res;
+}
 
-    // Display welcome message
-    string welcome_message = string(name) + string(" has joined");
-    broadcast_message("#NULL", id);
-    broadcast_message(id, id);
-    broadcast_message(welcome_message, id);
-    shared_print(color(id) + welcome_message + def_col);
-
-    while (1)
-    {
-        int bytes_received = recv(client_socket, str, sizeof(str), 0);
-        if (bytes_received <= 0)
-            return;
-        if (strcmp(str, "#exit") == 0)
-        {
-            // Display leaving message
-            string message = string(name) + string(" has left");
-            broadcast_message("#NULL", id);
-            broadcast_message(id, id);
-            broadcast_message(message, id);
-            shared_print(color(id) + message + def_col);
-            end_connection(id);
-            return;
-        }
-        broadcast_message(string(name), id);
-        broadcast_message(id, id);
-        broadcast_message(string(str), id);
-        shared_print(color(id) + name + " : " + def_col + str);
-    }
+void error_handling(const std::string &message)
+{
+    std::cerr << message << std::endl;
+    exit(1);
 }
