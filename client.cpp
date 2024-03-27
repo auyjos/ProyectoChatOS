@@ -25,7 +25,6 @@ std::string msg;
 int main(int argc, const char **argv, const char **envp)
 {
     int sock;
-    // sockaddr_in serv_addr{};
     struct sockaddr_in serv_addr;
 
     if (argc != 2)
@@ -34,33 +33,27 @@ int main(int argc, const char **argv, const char **envp)
         exit(1);
     }
 
-    // 客户端名称
     name = "[" + std::string(argv[1]) + "]";
 
-    // sock=socket(PF_INET, SOCK_STREAM, 0);
-    // 创建Socket,使用TCP协议
     sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (sock == -1)
     {
         error_handling("socket() failed!");
     }
 
-    // 将套接字和指定的 IP、端口绑定
     memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = inet_addr(IP);
     serv_addr.sin_port = htons(SERVER_PORT);
 
-    // 连接服务器
     if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) == -1)
     {
         error_handling("connect() failed!");
     }
-    // 向服务器发送自己的名字
+
     std::string my_name = "#new client:" + std::string(argv[1]);
     send(sock, my_name.c_str(), my_name.length() + 1, 0);
 
-    // 生成发送、接受消息的线程
     std::thread snd(send_msg, sock);
     std::thread rcv(recv_msg, sock);
 
@@ -82,7 +75,6 @@ void send_msg(int sock)
             close(sock);
             exit(0);
         }
-        // 生成消息格式（[name] massage）
         std::string name_msg = name + " " + msg;
         send(sock, name_msg.c_str(), name_msg.length() + 1, 0);
     }
@@ -96,9 +88,18 @@ void recv_msg(int sock)
         int str_len = recv(sock, name_msg, BUF_SIZE + name.length() + 1, 0);
         if (str_len == -1)
         {
-            exit(-1);
+            error_handling("recv() failed!");
         }
-        std::cout << std::string(name_msg) << std::endl;
+        else if (str_len == 0) // Si el cliente se desconecta
+        {
+            error_output("El servidor ha cerrado la conexión.\n");
+            close(sock);
+            exit(0);
+        }
+        else
+        {
+            std::cout << std::string(name_msg) << std::endl;
+        }
     }
 }
 
