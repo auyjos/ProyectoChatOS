@@ -11,7 +11,7 @@
 
 #define BUF_SIZE 1024
 #define SERVER_PORT 5208 // 侦听端口
-#define IP "127.0.0.1"
+#define IP "192.168.0.11"
 
 void send_msg(int sock);
 void recv_msg(int sock);
