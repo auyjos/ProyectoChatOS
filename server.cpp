@@ -92,68 +92,70 @@ void handle_clnt(int clnt_sock)
     char msg[BUF_SIZE];
     int flag = 0;
 
-    // 第一次广播自己的名字时的前缀
+    // Primera vez que se transmite el nombre del cliente
     char tell_name[13] = "#new client:";
-    while (recv(clnt_sock, msg, sizeof(msg), 0) != 0)
+    try
     {
-        // 检查是否为第一次进入聊天室时的广播
-        if (std::strlen(msg) > std::strlen(tell_name))
+        while (recv(clnt_sock, msg, sizeof(msg), 0) != 0)
         {
-            // 判断msg最前面是否为 #new client:
-            char pre_name[13];
-            std::strncpy(pre_name, msg, 12);
-            pre_name[12] = '\0';
-            if (std::strcmp(pre_name, tell_name) == 0)
+            if (std::strlen(msg) > std::strlen(tell_name))
             {
-                // 此消息声明client名字
-                char name[20];
-                std::strcpy(name, msg + 12);
-                if (clnt_socks.find(name) == clnt_socks.end())
+                char pre_name[13];
+                std::strncpy(pre_name, msg, 12);
+                pre_name[12] = '\0';
+                if (std::strcmp(pre_name, tell_name) == 0)
                 {
-                    output("the name of socket %d: %s\n", clnt_sock, name);
-                    clnt_socks[name] = clnt_sock;
-                }
-                else
-                {
-                    // 客户端名字重复
-                    std::string error_msg = std::string(name) + " exists already. Please quit and enter with another name!";
-                    send(clnt_sock, error_msg.c_str(), error_msg.length() + 1, 0);
-                    mtx.lock();
-                    clnt_cnt--;
-                    mtx.unlock();
-                    flag = 1;
+                    char name[20];
+                    std::strcpy(name, msg + 12);
+                    if (clnt_socks.find(name) == clnt_socks.end())
+                    {
+                        output("the name of socket %d: %s\n", clnt_sock, name);
+                        clnt_socks[name] = clnt_sock;
+                    }
+                    else
+                    {
+                        std::string error_msg = std::string(name) + " exists already. Please quit and enter with another name!";
+                        send(clnt_sock, error_msg.c_str(), error_msg.length() + 1, 0);
+                        mtx.lock();
+                        clnt_cnt--;
+                        mtx.unlock();
+                        flag = 1;
+                    }
                 }
             }
-        }
 
-        if (flag == 0)
-            send_msg(std::string(msg));
+            if (flag == 0)
+                send_msg(std::string(msg));
+        }
     }
+    catch (const std::exception &e)
+    {
+        error_output("Exception occurred in handle_clnt: %s\n", e.what());
+    }
+
+    // Cliente desconectado, eliminar del mapa
+    std::string name;
+    mtx.lock();
+    for (auto it = clnt_socks.begin(); it != clnt_socks.end(); ++it)
+    {
+        if (it->second == clnt_sock)
+        {
+            name = it->first;
+            clnt_socks.erase(it->first);
+            break;
+        }
+    }
+    clnt_cnt--;
+    mtx.unlock();
+
     if (flag == 0)
     {
-        // 客户端关闭连接，从clnt_socks中删除此客户端
-        std::string leave_msg;
-        std::string name;
-        mtx.lock();
-        for (auto it = clnt_socks.begin(); it != clnt_socks.end(); ++it)
-        {
-            if (it->second == clnt_sock)
-            {
-                name = it->first;
-                clnt_socks.erase(it->first);
-            }
-        }
-        clnt_cnt--;
-        mtx.unlock();
-        leave_msg = "client " + name + " leaves the chat room";
+        std::string leave_msg = "Client " + name + " left the chat room";
         send_msg(leave_msg);
-        output("client %s leaves the chat room\n", name.c_str());
-        close(clnt_sock);
+        output("Client %s left the chat room\n", name.c_str());
     }
-    else
-    {
-        close(clnt_sock);
-    }
+
+    close(clnt_sock);
 }
 
 void send_msg(const std::string &msg)
