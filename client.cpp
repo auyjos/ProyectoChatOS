@@ -10,8 +10,8 @@
 #include <stdarg.h>
 
 #define BUF_SIZE 1024
-#define SERVER_PORT 5208 // 侦听端口
-#define IP "192.168.0.11"
+#define SERVER_PORT 5208 // Puerto de escucha del servidor
+#define IP "192.168.0.16"
 
 void send_msg(int sock);
 void recv_msg(int sock);
@@ -51,9 +51,11 @@ int main(int argc, const char **argv, const char **envp)
         error_handling("connect() failed!");
     }
 
+    // Envía el nombre del cliente al servidor para validación
     std::string my_name = "#new client:" + std::string(argv[1]);
     send(sock, my_name.c_str(), my_name.length() + 1, 0);
 
+    // Espera a que el hilo de envío y recepción terminen
     std::thread snd(send_msg, sock);
     std::thread rcv(recv_msg, sock);
 
