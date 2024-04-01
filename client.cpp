@@ -88,13 +88,13 @@ void send_msg(int sock)
         }
         else if (msg == "help")
         {
-            output("1. Chatear con todos los usuarios (broadcasting).\n"
-                   "2. Enviar y recibir mensajes directos, privados, aparte del chat general.\n"
+            output("1. Este es el chat general. Puedes mandar y recibir mensajes de todos los usuarios.\n"
+                   "2. Para enviar mensajes privados, debes poner el nombre del usuarios con un arroba.\n"
                    "3. Cambiar de status.\n"
                    "4. Listar los usuarios conectados al sistema de chat.\n"
                    "5. Desplegar información de un usuario en particular.\n"
-                   "6. Ayuda.\n"
-                   "7. Salir.\n");
+                   "6. Para ver el menu debes escribir help en el chat.\n"
+                   "7. Para salir del chat, escribe quit.\n");
         }
         else
         {
