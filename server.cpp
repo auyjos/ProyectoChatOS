@@ -9,9 +9,9 @@
 #include <unordered_map>
 #include <stdarg.h>
 
-#define SERVER_PORT 5208 // Puerto de escucha
+#define SERVER_PORT 5208 // 侦听端口
 #define BUF_SIZE 1024
-#define MAX_CLNT 256 // Número máximo de conexiones
+#define MAX_CLNT 256 // 最大连接数
 
 void handle_clnt(int clnt_sock);
 void send_msg(const std::string &msg);
@@ -21,7 +21,7 @@ void error_handling(const std::string &message);
 
 int clnt_cnt = 0;
 std::mutex mtx;
-// Utilizar unordered_map para almacenar el nombre y el socket de cada cliente
+// 用unordered_map存储每个client的名字和socket
 std::unordered_map<std::string, int> clnt_socks;
 
 int main(int argc, const char **argv, const char **envp)
@@ -30,57 +30,58 @@ int main(int argc, const char **argv, const char **envp)
     struct sockaddr_in serv_addr, clnt_addr;
     socklen_t clnt_addr_size;
 
-    // Crear un socket, con los siguientes parámetros:
-    //   AF_INET: Utilizar IPv4
-    //   SOCK_STREAM: Comunicación orientada a la conexión
-    //   IPPROTO_TCP: Utilizar TCP
+    // 创建套接字，参数说明：
+    //   AF_INET: 使用 IPv4
+    //   SOCK_STREAM: 面向连接的数据传输方式
+    //   IPPROTO_TCP: 使用 TCP 协议
     serv_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (serv_sock == -1)
     {
-        error_handling("¡socket() falló!");
+        error_handling("socket() failed!");
     }
-    // Enlazar el socket a una dirección IP y puerto específicos.
-    // Rellenar serv_addr con ceros (es una estructura sockaddr_in).
+    // 将套接字和指定的 IP、端口绑定
+    //   用 0 填充 serv_addr （它是一个 sockaddr_in 结构体）
     memset(&serv_addr, 0, sizeof(serv_addr));
-    // Configurar IPv4
-    // Configurar la dirección IP
-    // Configurar el puerto
+    //   设置 IPv4
+    //   设置 IP 地址
+    //   设置端口
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    // serv_addr.sin_port=htons(atoi(argv[1]));
     serv_addr.sin_port = htons(SERVER_PORT);
 
-    // Realizar el enlace
+    //   绑定
     if (bind(serv_sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) == -1)
     {
-        error_handling("¡bind() falló!");
+        error_handling("bind() failed!");
     }
-    printf("El servidor se está ejecutando en el puerto %d\n", SERVER_PORT);
-    // Poner el socket en estado de escucha, esperando las solicitudes de los clientes.
+    printf("the server is running on port %d\n", SERVER_PORT);
+    // 使得 serv_sock 套接字进入监听状态，开始等待客户端发起请求
     if (listen(serv_sock, MAX_CLNT) == -1)
     {
-        error_handling("¡error en listen()!");
+        error_handling("listen() error!");
     }
 
     while (1)
-    { // Escuchar continuamente las solicitudes de los clientes
+    { // 循环监听客户端，永远不停止
         clnt_addr_size = sizeof(clnt_addr);
-        // Cuando no hay clientes conectados, accept() bloqueará la ejecución del programa hasta que un cliente se conecte.
+        // 当没有客户端连接时， accept() 会阻塞程序执行，直到有客户端连接进来
         clnt_sock = accept(serv_sock, (struct sockaddr *)&clnt_addr, &clnt_addr_size);
         if (clnt_sock == -1)
         {
-            error_handling("¡accept() falló!");
+            error_handling("accept() failed!");
         }
 
-        // Incrementar el contador de clientes
+        // 增加客户端数量
         mtx.lock();
         clnt_cnt++;
         mtx.unlock();
 
-        // Crear un hilo para manejar al cliente
+        // 生成线程
         std::thread th(handle_clnt, clnt_sock);
         th.detach();
 
-        output("Cliente conectado IP: %s \n", inet_ntoa(clnt_addr.sin_addr));
+        output("Connected client IP: %s \n", inet_ntoa(clnt_addr.sin_addr));
     }
     close(serv_sock);
     return 0;
@@ -91,7 +92,7 @@ void handle_clnt(int clnt_sock)
     char msg[BUF_SIZE];
     int flag = 0;
 
-    // Prefijo para la transmisión del nombre del cliente por primera vez
+    // Primera vez que se transmite el nombre del cliente
     char tell_name[13] = "#new client:";
     try
     {
@@ -108,12 +109,12 @@ void handle_clnt(int clnt_sock)
                     std::strcpy(name, msg + 12);
                     if (clnt_socks.find(name) == clnt_socks.end())
                     {
-                        output("nombre del socket %d: %s\n", clnt_sock, name);
+                        output("the name of socket %d: %s\n", clnt_sock, name);
                         clnt_socks[name] = clnt_sock;
                     }
                     else
                     {
-                        std::string error_msg = std::string(name) + " ya existe. ¡Por favor, salga e ingrese con otro nombre!";
+                        std::string error_msg = std::string(name) + " exists already. Please quit and enter with another name!";
                         send(clnt_sock, error_msg.c_str(), error_msg.length() + 1, 0);
                         mtx.lock();
                         clnt_cnt--;
@@ -129,10 +130,10 @@ void handle_clnt(int clnt_sock)
     }
     catch (const std::exception &e)
     {
-        error_output("Se produjo una excepción en handle_clnt: %s\n", e.what());
+        error_output("Exception occurred in handle_clnt: %s\n", e.what());
     }
 
-    // Cliente desconectado, eliminarlo del mapa
+    // Cliente desconectado, eliminar del mapa
     std::string name;
     mtx.lock();
     for (auto it = clnt_socks.begin(); it != clnt_socks.end(); ++it)
@@ -149,9 +150,9 @@ void handle_clnt(int clnt_sock)
 
     if (flag == 0)
     {
-        std::string leave_msg = "El cliente " + name + " abandonó la sala de chat";
+        std::string leave_msg = "Client " + name + " left the chat room";
         send_msg(leave_msg);
-        output("El cliente %s abandonó la sala de chat\n", name.c_str());
+        output("Client %s left the chat room\n", name.c_str());
     }
 
     close(clnt_sock);
@@ -160,21 +161,21 @@ void handle_clnt(int clnt_sock)
 void send_msg(const std::string &msg)
 {
     mtx.lock();
-    // Formato para mensajes privados: [send_clnt] @recv_clnt message
-    // Comprobar si hay @ después de [send_clnt]. Si hay, entonces es un mensaje privado.
+    // 私聊msg格式: [send_clnt] @recv_clnt message
+    // 判断[send_clnt] 后是否为@ 若是则是私聊
     std::string pre = "@";
     int first_space = msg.find_first_of(" ");
     if (msg.compare(first_space + 1, 1, pre) == 0)
     {
-        // Unicast
-        // space es el espacio entre recv_clnt y el mensaje
+        // 单播
+        // space为recv_clnt和消息间的空格
         int space = msg.find_first_of(" ", first_space + 1);
         std::string receive_name = msg.substr(first_space + 2, space - first_space - 2);
         std::string send_name = msg.substr(1, first_space - 2);
         if (clnt_socks.find(receive_name) == clnt_socks.end())
         {
-            // Si el usuario al que se envía el mensaje privado no existe
-            std::string error_msg = "[error] no hay cliente con el nombre " + receive_name;
+            // 如果私聊的用户不存在
+            std::string error_msg = "[error] there is no client named " + receive_name;
             send(clnt_socks[send_name], error_msg.c_str(), error_msg.length() + 1, 0);
         }
         else
@@ -185,7 +186,7 @@ void send_msg(const std::string &msg)
     }
     else
     {
-        // Broadcast
+        // 广播
         for (auto it = clnt_socks.begin(); it != clnt_socks.end(); it++)
         {
             send(it->second, msg.c_str(), msg.length() + 1, 0);
