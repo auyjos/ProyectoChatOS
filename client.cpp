@@ -11,7 +11,7 @@
 
 #define BUF_SIZE 1024
 #define SERVER_PORT 5208 // Puerto de escucha del servidor
-#define IP "10.0.2.15"
+#define IP "10.100.17.228"
 
 void send_msg(int sock);
 void recv_msg(int sock);
