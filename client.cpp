@@ -20,8 +20,8 @@ int output(const char *arg, ...);
 int error_output(const char *arg, ...);
 void error_handling(const std::string &message);
 
-std::string name = "DEFAULT";
-std::string msg;
+std::string name = "DEFAULT"; // Nombre predeterminado del cliente
+std::string msg;              // Mensaje para enviar/recibir
 
 int main(int argc, const char **argv, const char **envp)
 {
@@ -34,7 +34,7 @@ int main(int argc, const char **argv, const char **envp)
         exit(1);
     }
 
-    name = "[" + std::string(argv[1]) + "]";
+    name = "[" + std::string(argv[1]) + "]"; // Asigna el nombre del cliente
 
     sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (sock == -1)
@@ -42,11 +42,13 @@ int main(int argc, const char **argv, const char **envp)
         error_handling("socket() failed!");
     }
 
+    // Configuración de la dirección del servidor
     memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = inet_addr(IP);
     serv_addr.sin_port = htons(SERVER_PORT);
 
+    // Conexión al servidor
     if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) == -1)
     {
         error_handling("connect() failed!");
@@ -56,7 +58,7 @@ int main(int argc, const char **argv, const char **envp)
     std::string my_name = "#new client:" + std::string(argv[1]);
     send(sock, my_name.c_str(), my_name.length() + 1, 0);
 
-    // Espera a que el hilo de envío y recepción terminen
+    // Espera a que los hilos de envío y recepción terminen
     std::thread snd(send_msg, sock);
     std::thread rcv(recv_msg, sock);
 
@@ -68,25 +70,26 @@ int main(int argc, const char **argv, const char **envp)
     return 0;
 }
 
+// Función para enviar mensajes al servidor
 void send_msg(int sock)
 {
     while (1)
     {
         getline(std::cin, msg);
-        if (msg == "Quit" || msg == "quit")
+        if (msg == "Quit" || msg == "quit") // Si se escribe "Quit" o "quit", sale del programa
         {
             close(sock);
             exit(0);
         }
-        else if (msg == "status")
+        else if (msg == "status") // Solicita al servidor el estado
         {
             send_command(sock, "#status");
         }
-        else if (msg == "list")
+        else if (msg == "list") // Solicita al servidor la lista de usuarios conectados
         {
             send_command(sock, "#list");
         }
-        else if (msg == "help")
+        else if (msg == "help") // Muestra el menú de ayuda
         {
             output("1. Este es el chat general. Puedes mandar y recibir mensajes de todos los usuarios.\n"
                    "2. Para enviar mensajes privados, debes poner el nombre del usuarios con un arroba.\n"
@@ -98,18 +101,19 @@ void send_msg(int sock)
         }
         else
         {
-            std::string name_msg = name + " " + msg;
-            send(sock, name_msg.c_str(), name_msg.length() + 1, 0);
+            std::string name_msg = name + " " + msg;                // Construye el mensaje con el nombre del cliente
+            send(sock, name_msg.c_str(), name_msg.length() + 1, 0); // Envía el mensaje al servidor
         }
     }
 }
 
+// Función para recibir mensajes del servidor
 void recv_msg(int sock)
 {
     char name_msg[BUF_SIZE + name.length() + 1];
     while (1)
     {
-        int str_len = recv(sock, name_msg, BUF_SIZE + name.length() + 1, 0);
+        int str_len = recv(sock, name_msg, BUF_SIZE + name.length() + 1, 0); // Recibe un mensaje del servidor
         if (str_len == -1)
         {
             error_handling("recv() failed!");
@@ -122,16 +126,18 @@ void recv_msg(int sock)
         }
         else
         {
-            std::cout << std::string(name_msg) << std::endl;
+            std::cout << std::string(name_msg) << std::endl; // Muestra el mensaje recibido
         }
     }
 }
 
+// Función para enviar comandos al servidor
 void send_command(int sock, const std::string &command)
 {
-    send(sock, command.c_str(), command.length() + 1, 0);
+    send(sock, command.c_str(), command.length() + 1, 0); // Envía el comando al servidor
 }
 
+// Función para imprimir en la salida estándar
 int output(const char *arg, ...)
 {
     int res;
@@ -142,6 +148,7 @@ int output(const char *arg, ...)
     return res;
 }
 
+// Función para imprimir mensajes de error
 int error_output(const char *arg, ...)
 {
     int res;
@@ -152,6 +159,7 @@ int error_output(const char *arg, ...)
     return res;
 }
 
+// Función para manejar errores
 void error_handling(const std::string &message)
 {
     std::cerr << message << std::endl;
