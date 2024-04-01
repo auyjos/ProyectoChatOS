@@ -11,10 +11,11 @@
 
 #define BUF_SIZE 1024
 #define SERVER_PORT 5208 // Puerto de escucha del servidor
-#define IP "10.100.17.228"
+#define IP "10.0.2.15"
 
 void send_msg(int sock);
 void recv_msg(int sock);
+void send_command(int sock, const std::string &command);
 int output(const char *arg, ...);
 int error_output(const char *arg, ...);
 void error_handling(const std::string &message);
@@ -77,8 +78,29 @@ void send_msg(int sock)
             close(sock);
             exit(0);
         }
-        std::string name_msg = name + " " + msg;
-        send(sock, name_msg.c_str(), name_msg.length() + 1, 0);
+        else if (msg == "status")
+        {
+            send_command(sock, "#status");
+        }
+        else if (msg == "list")
+        {
+            send_command(sock, "#list");
+        }
+        else if (msg == "help")
+        {
+            output("1. Este es el chat general. Puedes mandar y recibir mensajes de todos los usuarios.\n"
+                   "2. Para enviar mensajes privados, debes poner el nombre del usuarios con un arroba.\n"
+                   "3. Cambiar de status.\n"
+                   "4. Listar los usuarios conectados al sistema de chat.\n"
+                   "5. Desplegar información de un usuario en particular.\n"
+                   "6. Para ver el menu debes escribir help en el chat.\n"
+                   "7. Para salir del chat, escribe quit.\n");
+        }
+        else
+        {
+            std::string name_msg = name + " " + msg;
+            send(sock, name_msg.c_str(), name_msg.length() + 1, 0);
+        }
     }
 }
 
@@ -103,6 +125,11 @@ void recv_msg(int sock)
             std::cout << std::string(name_msg) << std::endl;
         }
     }
+}
+
+void send_command(int sock, const std::string &command)
+{
+    send(sock, command.c_str(), command.length() + 1, 0);
 }
 
 int output(const char *arg, ...)

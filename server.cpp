@@ -9,19 +9,21 @@
 #include <unordered_map>
 #include <stdarg.h>
 
-#define SERVER_PORT 5208 // 侦听端口
+#define SERVER_PORT 5208 // Puerto de escucha
 #define BUF_SIZE 1024
-#define MAX_CLNT 256 // 最大连接数
+#define MAX_CLNT 256 // Máximo número de clientes
 
 void handle_clnt(int clnt_sock);
-void send_msg(const std::string &msg);
+void send_msg(int clnt_sock, const std::string &msg); 
+void change_status(int clnt_sock, const std::string &status);
+void list_users(int clnt_sock);
+void show_user_info(int clnt_sock, const std::string &username);
 int output(const char *arg, ...);
 int error_output(const char *arg, ...);
 void error_handling(const std::string &message);
 
 int clnt_cnt = 0;
 std::mutex mtx;
-// 用unordered_map存储每个client的名字和socket
 std::unordered_map<std::string, int> clnt_socks;
 
 int main(int argc, const char **argv, const char **envp)
@@ -30,59 +32,48 @@ int main(int argc, const char **argv, const char **envp)
     struct sockaddr_in serv_addr, clnt_addr;
     socklen_t clnt_addr_size;
 
-    // 创建套接字，参数说明：
-    //   AF_INET: 使用 IPv4
-    //   SOCK_STREAM: 面向连接的数据传输方式
-    //   IPPROTO_TCP: 使用 TCP 协议
     serv_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (serv_sock == -1)
     {
         error_handling("socket() failed!");
     }
-    // 将套接字和指定的 IP、端口绑定
-    //   用 0 填充 serv_addr （它是一个 sockaddr_in 结构体）
+
     memset(&serv_addr, 0, sizeof(serv_addr));
-    //   设置 IPv4
-    //   设置 IP 地址
-    //   设置端口
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    // serv_addr.sin_port=htons(atoi(argv[1]));
     serv_addr.sin_port = htons(SERVER_PORT);
 
-    //   绑定
     if (bind(serv_sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) == -1)
     {
         error_handling("bind() failed!");
     }
+
     printf("the server is running on port %d\n", SERVER_PORT);
-    // 使得 serv_sock 套接字进入监听状态，开始等待客户端发起请求
+
     if (listen(serv_sock, MAX_CLNT) == -1)
     {
         error_handling("listen() error!");
     }
 
     while (1)
-    { // 循环监听客户端，永远不停止
+    {
         clnt_addr_size = sizeof(clnt_addr);
-        // 当没有客户端连接时， accept() 会阻塞程序执行，直到有客户端连接进来
         clnt_sock = accept(serv_sock, (struct sockaddr *)&clnt_addr, &clnt_addr_size);
         if (clnt_sock == -1)
         {
             error_handling("accept() failed!");
         }
 
-        // 增加客户端数量
         mtx.lock();
         clnt_cnt++;
         mtx.unlock();
 
-        // 生成线程
         std::thread th(handle_clnt, clnt_sock);
         th.detach();
 
         output("Connected client IP: %s \n", inet_ntoa(clnt_addr.sin_addr));
     }
+
     close(serv_sock);
     return 0;
 }
@@ -92,7 +83,6 @@ void handle_clnt(int clnt_sock)
     char msg[BUF_SIZE];
     int flag = 0;
 
-    // Primera vez que se transmite el nombre del cliente
     char tell_name[13] = "#new client:";
     try
     {
@@ -125,7 +115,7 @@ void handle_clnt(int clnt_sock)
             }
 
             if (flag == 0)
-                send_msg(std::string(msg));
+                send_msg(clnt_sock, std::string(msg));
         }
     }
     catch (const std::exception &e)
@@ -133,7 +123,6 @@ void handle_clnt(int clnt_sock)
         error_output("Exception occurred in handle_clnt: %s\n", e.what());
     }
 
-    // Cliente desconectado, eliminar del mapa
     std::string name;
     mtx.lock();
     for (auto it = clnt_socks.begin(); it != clnt_socks.end(); ++it)
@@ -151,47 +140,88 @@ void handle_clnt(int clnt_sock)
     if (flag == 0)
     {
         std::string leave_msg = "Client " + name + " left the chat room";
-        send_msg(leave_msg);
+        send_msg(clnt_sock, leave_msg);
         output("Client %s left the chat room\n", name.c_str());
     }
 
     close(clnt_sock);
 }
 
-void send_msg(const std::string &msg)
+void send_msg(int clnt_sock, const std::string &msg) 
 {
     mtx.lock();
-    // 私聊msg格式: [send_clnt] @recv_clnt message
-    // 判断[send_clnt] 后是否为@ 若是则是私聊
-    std::string pre = "@";
     int first_space = msg.find_first_of(" ");
-    if (msg.compare(first_space + 1, 1, pre) == 0)
+    if (first_space != std::string::npos)
     {
-        // 单播
-        // space为recv_clnt和消息间的空格
-        int space = msg.find_first_of(" ", first_space + 1);
-        std::string receive_name = msg.substr(first_space + 2, space - first_space - 2);
-        std::string send_name = msg.substr(1, first_space - 2);
-        if (clnt_socks.find(receive_name) == clnt_socks.end())
+        std::string command = msg.substr(0, first_space);
+        if (command == "#status")
         {
-            // 如果私聊的用户不存在
-            std::string error_msg = "[error] there is no client named " + receive_name;
-            send(clnt_socks[send_name], error_msg.c_str(), error_msg.length() + 1, 0);
+            std::string status = msg.substr(first_space + 1);
+            change_status(clnt_sock, status);
+        }
+        else if (command == "#list")
+        {
+            list_users(clnt_sock);
+        }
+        else if (command == "#info")
+        {
+            std::string username = msg.substr(first_space + 1);
+            show_user_info(clnt_sock, username);
         }
         else
         {
-            send(clnt_socks[receive_name], msg.c_str(), msg.length() + 1, 0);
-            send(clnt_socks[send_name], msg.c_str(), msg.length() + 1, 0);
+            // Broadcast message
+            for (auto it = clnt_socks.begin(); it != clnt_socks.end(); it++)
+            {
+                send(it->second, msg.c_str(), msg.length() + 1, 0);
+            }
         }
+    }
+    mtx.unlock();
+}
+
+void change_status(int clnt_sock, const std::string &status)
+{
+    mtx.lock();
+    for (auto it = clnt_socks.begin(); it != clnt_socks.end(); ++it)
+    {
+        if (it->second == clnt_sock)
+        {
+            std::string username = it->first;
+            output("Changing status of user '%s' to '%s'\n", username.c_str(), status.c_str());
+            
+            break;
+        }
+    }
+    mtx.unlock();
+}
+
+void list_users(int clnt_sock)
+{
+    mtx.lock();
+    std::string user_list = "Usuarios conectados:\n";
+    for (const auto &pair : clnt_socks)
+    {
+        user_list += pair.first + "\n";
+    }
+    send(clnt_sock, user_list.c_str(), user_list.length() + 1, 0);
+    mtx.unlock();
+}
+
+void show_user_info(int clnt_sock, const std::string &username)
+{
+    mtx.lock();
+    std::string info_msg;
+    if (clnt_socks.find(username) != clnt_socks.end())
+    {
+        info_msg = "Información de usuario '" + username + "':\n";
+    
     }
     else
     {
-        // 广播
-        for (auto it = clnt_socks.begin(); it != clnt_socks.end(); it++)
-        {
-            send(it->second, msg.c_str(), msg.length() + 1, 0);
-        }
+        info_msg = "El usuario '" + username + "' no está conectado.\n";
     }
+    send(clnt_sock, info_msg.c_str(), info_msg.length() + 1, 0);
     mtx.unlock();
 }
 
