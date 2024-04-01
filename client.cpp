@@ -10,8 +10,6 @@
 #include <stdarg.h>
 
 #define BUF_SIZE 1024
-#define SERVER_PORT 5208 // Puerto de escucha del servidor
-#define IP "10.100.17.228"
 
 void send_msg(int sock);
 void recv_msg(int sock);
@@ -25,16 +23,18 @@ std::string msg;              // Mensaje para enviar/recibir
 
 int main(int argc, const char **argv, const char **envp)
 {
-    int sock;
-    struct sockaddr_in serv_addr;
-
-    if (argc != 2)
+    if (argc != 4)
     {
-        error_output("Usage : %s <Name> \n", argv[0]);
+        error_output("Usage: %s <Name> <Server_IP> <Server_Port>\n", argv[0]);
         exit(1);
     }
 
     name = "[" + std::string(argv[1]) + "]"; // Asigna el nombre del cliente
+    const char *server_ip = argv[2];         // Dirección IP del servidor
+    int server_port = std::stoi(argv[3]);    // Puerto del servidor
+
+    int sock;
+    struct sockaddr_in serv_addr;
 
     sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (sock == -1)
@@ -45,8 +45,8 @@ int main(int argc, const char **argv, const char **envp)
     // Configuración de la dirección del servidor
     memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
-    serv_addr.sin_addr.s_addr = inet_addr(IP);
-    serv_addr.sin_port = htons(SERVER_PORT);
+    serv_addr.sin_addr.s_addr = inet_addr(server_ip);
+    serv_addr.sin_port = htons(server_port);
 
     // Conexión al servidor
     if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) == -1)
@@ -89,7 +89,7 @@ void send_msg(int sock)
         {
             send_command(sock, "#list");
         }
-        else if (msg == "help") // Muestra el menú de ayuda
+        else if (msg == "help" || msg == "Help") // Muestra el menú de ayuda
         {
             output("1. Este es el chat general. Puedes mandar y recibir mensajes de todos los usuarios.\n"
                    "2. Para enviar mensajes privados, debes poner el nombre del usuarios con un arroba.\n"
