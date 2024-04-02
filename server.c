@@ -10,7 +10,7 @@
 #include <ctype.h>
 #include <arpa/inet.h>
 
-#define SERVER_PORT 5208
+#define SERVER_PORT 8080
 #define BUF_SIZE 1024
 #define MAX_CLNT 256
 
@@ -27,14 +27,16 @@ char *trim(char *str)
     char *end;
 
     // Trim leading space
-    while(isspace((unsigned char)*str)) str++;
+    while (isspace((unsigned char)*str))
+        str++;
 
-    if(*str == 0)  // All spaces?
+    if (*str == 0) // All spaces?
         return str;
 
     // Trim trailing space
     end = str + strlen(str) - 1;
-    while(end > str && isspace((unsigned char)*end)) end--;
+    while (end > str && isspace((unsigned char)*end))
+        end--;
 
     // Write new null terminator character
     end[1] = '\0';
@@ -136,9 +138,6 @@ void *handle_clnt(void *arg)
                     char error_msg[BUF_SIZE];
                     sprintf(error_msg, "%s exists already. Please quit and enter with another name!", name);
                     send(clnt_sock, error_msg, strlen(error_msg) + 1, 0);
-                    pthread_mutex_lock(&mtx);
-                    clnt_cnt--;
-                    pthread_mutex_unlock(&mtx);
                     flag = 1;
                 }
             }
@@ -157,8 +156,7 @@ void *handle_clnt(void *arg)
             }
             pthread_mutex_unlock(&mtx);
             send(clnt_sock, list_msg, strlen(list_msg) + 1, 0);
-        
-        }   
+        }
         else if (strstr(msg, "#tus:") == msg)
         {
             char status[BUF_SIZE];
@@ -172,7 +170,7 @@ void *handle_clnt(void *arg)
                     strcpy(clnt_socks[i].status, status); // Update the status
 
                     // Prepare the confirmation message
-                    char confirm_msg[BUF_SIZE+36];
+                    char confirm_msg[BUF_SIZE + 36];
                     snprintf(confirm_msg, sizeof(confirm_msg), "Your status has been changed to '%s'\n", clnt_socks[i].status);
 
                     // Send the confirmation message to the client
