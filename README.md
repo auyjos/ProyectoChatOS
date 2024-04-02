@@ -6,8 +6,8 @@ Este proyecto es una implementación de un sistema de chat en C/C++ basado en el
 1. Clonar el repositorio
 2. Correr los siguientes comandos en la terminal :
 ```
-g++ server.cpp -lpthread -o server
-g++ client.cpp -lpthread -o client
+gcc -o server server.c -lpthread
+gcc -o client client.c -lpthread
 ```
 3. Para correr el servidor:
 ```
