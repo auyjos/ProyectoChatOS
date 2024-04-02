@@ -7,6 +7,8 @@
 #include <arpa/inet.h>
 #include <stdbool.h>
 #include <stdarg.h>
+#include <ctype.h>
+#include <arpa/inet.h>
 
 #define SERVER_PORT 5208
 #define BUF_SIZE 1024
@@ -20,15 +22,36 @@ void show_user_info(int clnt_sock, const char *username);
 int output(const char *arg, ...);
 int error_output(const char *arg, ...);
 void error_handling(const char *message);
+char *trim(char *str)
+{
+    char *end;
+
+    // Trim leading space
+    while(isspace((unsigned char)*str)) str++;
+
+    if(*str == 0)  // All spaces?
+        return str;
+
+    // Trim trailing space
+    end = str + strlen(str) - 1;
+    while(end > str && isspace((unsigned char)*end)) end--;
+
+    // Write new null terminator character
+    end[1] = '\0';
+
+    return str;
+}
 
 int clnt_cnt = 0;
 pthread_mutex_t mtx;
 struct clnt_sock_map
 {
     char name[20];
+    char status[BUF_SIZE];
     int sock;
 };
 struct clnt_sock_map clnt_socks[MAX_CLNT];
+char clnt_ips[MAX_CLNT][INET_ADDRSTRLEN]; // Add this line to store the IP addresses
 
 int main(int argc, const char **argv, const char **envp)
 {
@@ -63,6 +86,7 @@ int main(int argc, const char **argv, const char **envp)
         }
         pthread_mutex_lock(&mtx);
         clnt_cnt++;
+        strcpy(clnt_ips[clnt_cnt - 1], inet_ntoa(clnt_addr.sin_addr)); // Store the IP address
         pthread_mutex_unlock(&mtx);
         pthread_t t_id;
         pthread_create(&t_id, NULL, handle_clnt, (void *)&clnt_sock);
@@ -81,6 +105,7 @@ void *handle_clnt(void *arg)
     char tell_name[13] = "#new client:";
     while (recv(clnt_sock, msg, sizeof(msg), 0) != 0)
     {
+        char *trim_msg = trim(msg);
         if (strlen(msg) > strlen(tell_name))
         {
             char pre_name[13];
@@ -104,6 +129,7 @@ void *handle_clnt(void *arg)
                     output("the name of socket %d: %s\n", clnt_sock, name);
                     strcpy(clnt_socks[clnt_cnt - 1].name, name);
                     clnt_socks[clnt_cnt - 1].sock = clnt_sock;
+                    strcpy(clnt_socks[clnt_cnt - 1].status, "ACTIVO");
                 }
                 else
                 {
@@ -116,6 +142,64 @@ void *handle_clnt(void *arg)
                     flag = 1;
                 }
             }
+        }
+        else if (strcmp(msg, "#list") == 0)
+        {
+            printf("Se inicio la lista correctamente.\n");
+            char list_msg[BUF_SIZE] = "Usuarios conectados:\n";
+            pthread_mutex_lock(&mtx);
+            for (int i = 0; i < clnt_cnt; i++)
+            {
+                strcat(list_msg, clnt_socks[i].name);
+                strcat(list_msg, " (");
+                strcat(list_msg, clnt_socks[i].status);
+                strcat(list_msg, ")\n");
+            }
+            pthread_mutex_unlock(&mtx);
+            send(clnt_sock, list_msg, strlen(list_msg) + 1, 0);
+        
+        }   
+        else if (strstr(msg, "#tus:") == msg)
+        {
+            char status[BUF_SIZE];
+            strcpy(status, msg + 5);
+
+            pthread_mutex_lock(&mtx);
+            for (int i = 0; i < clnt_cnt; i++)
+            {
+                if (clnt_socks[i].sock == clnt_sock)
+                {
+                    strcpy(clnt_socks[i].status, status); // Update the status
+
+                    // Prepare the confirmation message
+                    char confirm_msg[BUF_SIZE+36];
+                    snprintf(confirm_msg, sizeof(confirm_msg), "Your status has been changed to '%s'\n", clnt_socks[i].status);
+
+                    // Send the confirmation message to the client
+                    send(clnt_sock, confirm_msg, strlen(confirm_msg) + 1, 0);
+
+                    break;
+                }
+            }
+            pthread_mutex_unlock(&mtx);
+        }
+        else if (strncmp(msg, "#inf:", 5) == 0)
+        {
+            char username[BUF_SIZE];
+            strcpy(username, msg + 5);
+
+            pthread_mutex_lock(&mtx);
+            for (int i = 0; i < clnt_cnt; i++)
+            {
+                if (strcmp(clnt_socks[i].name, username) == 0)
+                {
+                    char inf_msg[BUF_SIZE];
+                    sprintf(inf_msg, "Name: %s, IP: %s, Socket: %d", clnt_socks[i].name, clnt_ips[i], clnt_socks[i].sock);
+                    send(clnt_sock, inf_msg, strlen(inf_msg) + 1, 0);
+                    break;
+                }
+            }
+            pthread_mutex_unlock(&mtx);
         }
         if (flag == 0)
             send_msg(clnt_sock, msg);
@@ -157,10 +241,10 @@ void send_msg(int clnt_sock, const char *msg)
         strncpy(command, msg, first_space);
         command[first_space] = '\0';
         char pre[2] = "@";
-        if (strcmp(command, "#status") == 0)
+        if (strncmp(msg, "#status:", 8) == 0)
         {
             char status[BUF_SIZE];
-            strcpy(status, msg + first_space + 1);
+            strcpy(status, msg + 8);
             change_status(clnt_sock, status);
         }
         else if (strcmp(command, "#list") == 0)
@@ -196,7 +280,7 @@ void send_msg(int clnt_sock, const char *msg)
             if (!name_exists)
             {
                 char error_msg[BUF_SIZE];
-                sprintf(error_msg, "[error] there is no client named %s", receive_name);
+                sprintf(error_msg, "[error] there is no client named %.990s", receive_name);
                 send(clnt_sock, error_msg, strlen(error_msg) + 1, 0);
             }
             else
@@ -223,9 +307,15 @@ void change_status(int clnt_sock, const char *status)
     {
         if (clnt_socks[i].sock == clnt_sock)
         {
-            char username[20];
-            strcpy(username, clnt_socks[i].name);
-            output("Changing status of user '%s' to '%s'\n", username, status);
+            strcpy(clnt_socks[i].status, status); // Update the status
+
+            // Prepare the confirmation message
+            char confirm_msg[BUF_SIZE];
+            snprintf(confirm_msg, sizeof(confirm_msg), "Your status has been changed to '%s'\n", clnt_socks[i].status);
+
+            // Send the confirmation message to the client
+            send(clnt_sock, confirm_msg, strlen(confirm_msg) + 1, 0);
+
             break;
         }
     }
@@ -235,11 +325,13 @@ void change_status(int clnt_sock, const char *status)
 void list_users(int clnt_sock)
 {
     pthread_mutex_lock(&mtx);
-    char user_list[BUF_SIZE] = "Usuarios conectados:\n";
+    char user_list[BUF_SIZE] = "Users conectados:\n";
     for (int i = 0; i < clnt_cnt; i++)
     {
         strcat(user_list, clnt_socks[i].name);
-        strcat(user_list, "\n");
+        strcat(user_list, " (");
+        strcat(user_list, clnt_socks[i].status);
+        strcat(user_list, ")\n");
     }
     send(clnt_sock, user_list, strlen(user_list) + 1, 0);
     pthread_mutex_unlock(&mtx);

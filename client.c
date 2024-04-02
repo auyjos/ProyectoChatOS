@@ -6,6 +6,7 @@
 #include <arpa/inet.h>
 #include <stdarg.h>
 #include <pthread.h>
+#include <ctype.h>
 
 #define BUF_SIZE 1024
 
@@ -18,6 +19,25 @@ void error_handling(const char *message);
 
 char name[BUF_SIZE] = "DEFAULT"; // Nombre predeterminado del cliente
 char msg[BUF_SIZE];              // Mensaje para enviar/recibir
+char *trim(char *str)
+{
+    char *end;
+
+    // Trim leading space
+    while(isspace((unsigned char)*str)) str++;
+
+    if(*str == 0)  // All spaces?
+        return str;
+
+    // Trim trailing space
+    end = str + strlen(str) - 1;
+    while(end > str && isspace((unsigned char)*end)) end--;
+
+    // Write new null terminator character
+    end[1] = '\0';
+
+    return str;
+}
 
 int main(int argc, char *argv[])
 {
@@ -60,6 +80,16 @@ int main(int argc, char *argv[])
     strcat(my_name, argv[1]);
     send(sock, my_name, strlen(my_name) + 1, 0);
 
+    output("Bienvenido al chat!\n"
+        "Aquí están algunas instrucciones para ayudarte a empezar:\n"
+        "1. Este es el chat general. Puedes mandar y recibir mensajes de todos los usuarios.\n"
+        "2. Para enviar mensajes privados, debes poner el nombre del usuarios con un arroba (eg. @user como estas?).\n"
+        "3. Para cambiar tu status, debes escribir status en el chat.\n"
+        "4. Para ver los usuarios conectados en el chat, escribe list.\n"
+        "5. Para ver la información de un usuario en particular, escribe inf.\n"
+        "6. Para volver a ver estas instrucciones, debes escribir help en el chat.\n"
+        "7. Para salir del chat, escribe quit.\n");
+
     // Espera a que los hilos de envío y recepción terminen
     pthread_t snd_thread, rcv_thread;
     pthread_create(&snd_thread, NULL, send_msg, (void *)&sock);
@@ -80,29 +110,50 @@ void *send_msg(void *sock)
     while (1)
     {
         fgets(msg, BUF_SIZE, stdin);
-        msg[strcspn(msg, "\n")] = '\0';                           // Eliminar el salto de línea
+        msg[strcspn(msg, "\n")] = '\0';                          
         if (strcmp(msg, "Quit") == 0 || strcmp(msg, "quit") == 0) // Si se escribe "Quit" o "quit", sale del programa
         {
             close(client_sock);
             exit(0);
         }
-        else if (strcmp(msg, "status") == 0) // Solicita al servidor el estado
+        else if (strcmp(msg, "status") == 0) // Solicita al servidor el cambio de estado
         {
-            send_command(client_sock, "#status");
+            char new_status[BUF_SIZE];
+            printf("Selecciona un status (ACTIVO, OCUPADO, INACTIVO): ");
+            fgets(new_status, BUF_SIZE, stdin);
+            new_status[strcspn(new_status, "\n")] = 0;
+
+            char *trimmed_status = trim(new_status);
+
+            char status_request[BUF_SIZE] = "#tus:";
+            strcat(status_request, trimmed_status);
+            send(client_sock, status_request, strlen(status_request) + 1, 0);
         }
         else if (strcmp(msg, "list") == 0) // Solicita al servidor la lista de usuarios conectados
         {
-            send_command(client_sock, "#list");
+            char list_request[BUF_SIZE] = "#list";
+            send(client_sock, list_request, strlen(list_request) + 1, 0);
         }
         else if (strcmp(msg, "help") == 0 || strcmp(msg, "Help") == 0) // Muestra el menú de ayuda
         {
             output("1. Este es el chat general. Puedes mandar y recibir mensajes de todos los usuarios.\n"
-                   "2. Para enviar mensajes privados, debes poner el nombre del usuarios con un arroba.\n"
-                   "3. Cambiar de status.\n"
-                   "4. Listar los usuarios conectados al sistema de chat.\n"
-                   "5. Desplegar información de un usuario en particular.\n"
-                   "6. Para ver el menu debes escribir help en el chat.\n"
-                   "7. Para salir del chat, escribe quit.\n");
+                    "2. Para enviar mensajes privados, debes poner el nombre del usuarios con un arroba (eg. @user como estas?).\n"
+                    "3. Para cambiar tu status, debes escribir status en el chat.\n"
+                    "4. Para ver los usuarios conectados en el chat, escribe list.\n"
+                    "5. Para ver la información de un usuario en particular, escribe inf.\n"
+                    "6. Para volver a ver estas instrucciones, debes escribir help en el chat.\n"
+                    "7. Para salir del chat, escribe quit.\n");
+        }
+        else if (strcmp(msg, "inf") == 0) // Request information about a user
+        {
+            char username[BUF_SIZE];
+            printf("Enter the username: ");
+            fgets(username, BUF_SIZE, stdin);
+            username[strcspn(username, "\n")] = 0;
+
+            char inf_request[BUF_SIZE] = "#inf:";
+            strcat(inf_request, username);
+            send(client_sock, inf_request, strlen(inf_request) + 1, 0);
         }
         else
         {
