@@ -8,7 +8,7 @@
 #include <stdbool.h>
 #include <stdarg.h>
 
-#define SERVER_PORT 8080
+#define SERVER_PORT 5208
 #define BUF_SIZE 1024
 #define MAX_CLNT 256
 
